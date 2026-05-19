@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
+import { supabase } from '../../../utils/supabaseClient'; // 🌟 Pastikan path mundur 3 tingkat ke folder utils cocok
+import { showSuccess, showError, showLoading } from '../../../utils/alerts';
 
 const CustomerTab = ({ orders, setOrders }) => {
   const [selectedIds, setSelectedIds] = useState([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // LOGIC AMBIL DATA CUSTOMER
   const customers = orders.map((order, index) => ({
@@ -10,7 +13,7 @@ const CustomerTab = ({ orders, setOrders }) => {
     userName: order.userName,
     waNumber: order.waNumber,
     themeModel: order.themeModel,
-    character: order.character || '-',
+    character: order.characterName || order.character || '-', // 🌟 Antisipasi pemetaan characterName dari Dashboard
     adminTarget: order.adminTarget
   }));
 
@@ -30,13 +33,37 @@ const CustomerTab = ({ orders, setOrders }) => {
     }
   };
 
-  // AKSI 1: HAPUS DATA YANG DIPILIH
-  const handleDeleteSelected = () => {
-    if (selectedIds.length === 0) return;
-    if (window.confirm(`Yakin mau hapus ${selectedIds.length} data order customer ini lee?`)) {
-      const remainingOrders = orders.filter(o => !selectedIds.includes(o.id));
-      setOrders(remainingOrders);
-      setSelectedIds([]);
+  // 🔥 FIX LOGIC: HAPUS TEMBUS KE DATABASE SUPABASE
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0 || isDeleting) return;
+
+    if (window.confirm(`Yakin mau hapus ${selectedIds.length} data order customer ini secara permanen dari database lee?`)) {
+      try {
+        setIsDeleting(true);
+        showLoading(); // Picu animasi putaran loading antarmuka
+
+        // 1. Eksekusi Hapus Massal di Tabel Supabase Orders berdasarkan deretan ID terpilih
+        const { error } = await supabase
+          .from('orders')
+          .delete()
+          .in('id', selectedIds);
+
+        if (error) throw error;
+
+        // 2. Jika Database Sukses Merespon, Sinkronkan State Utama di Dashboard Kakek
+        const remainingOrders = orders.filter(o => !selectedIds.includes(o.id));
+        setOrders(remainingOrders);
+        
+        // 3. Reset Kotak Centang State Lokal Cucu
+        setSelectedIds([]);
+        showSuccess("Data order customer terpilih berhasil dimusnahkan lee!");
+
+      } catch (error) {
+        console.error("Gagal mendelete database customer:", error);
+        showError("Gagal menghapus data dari server, periksa aturan RLS tabel orders lu lee.");
+      } finally {
+        setIsDeleting(false);
+      }
     }
   };
 
@@ -74,7 +101,7 @@ const CustomerTab = ({ orders, setOrders }) => {
   return (
     <div className="px-2 font-['Inter']">
       
-      {/* STICKY TOP ACTION BAR (Mengunci di atas saat di-scroll dan dinamis berganti warna) */}
+      {/* STICKY TOP ACTION BAR */}
       <div className={`sticky top-0 z-40 p-4 rounded-[24px] border transition-all duration-300 mb-4 flex justify-between items-center ${
         selectedIds.length > 0 
           ? 'bg-[#0f172a] text-white border-transparent shadow-lg' 
@@ -85,15 +112,14 @@ const CustomerTab = ({ orders, setOrders }) => {
             type="checkbox" 
             checked={customers.length > 0 && selectedIds.length === customers.length}
             onChange={handleSelectAll}
-            className={`w-5 h-5 rounded-[6px] border-slate-300 focus:ring-[#2557e0] ${
-              selectedIds.length > 0 ? 'text-[#2557e0]' : 'text-[#2557e0]'
-            }`}
+            disabled={isDeleting}
+            className="w-5 h-5 rounded-[6px] border-slate-300 text-[#2557e0] focus:ring-[#2557e0]"
           />
           <div>
             <span className="text-[12px] font-black uppercase tracking-wider block">
               {selectedIds.length > 0 ? `${selectedIds.length} Terpilih` : 'Pilih Semua'}
             </span>
-            <span className={`text-[10px] font-bold block ${selectedIds.length > 0 ? 'text-slate-400' : 'text-slate-400'}`}>
+            <span className="text-[10px] font-bold block text-slate-400">
               {customers.length} Total Database
             </span>
           </div>
@@ -105,13 +131,17 @@ const CustomerTab = ({ orders, setOrders }) => {
             <>
               <button 
                 onClick={handleDeleteSelected}
-                className="bg-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl active:scale-95 transition-transform"
+                disabled={isDeleting}
+                className={`text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl active:scale-95 transition-transform ${
+                  isDeleting ? 'bg-slate-700 text-slate-400' : 'bg-red-500/20 text-red-400'
+                }`}
               >
-                Hapus
+                {isDeleting ? 'Menghapus...' : 'Hapus'}
               </button>
               <button 
                 onClick={handleExportExcel}
-                className="bg-[#2557e0] text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl active:scale-95 transition-transform"
+                disabled={isDeleting}
+                className="bg-[#2557e0] text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl active:scale-95 transition-transform disabled:opacity-50"
               >
                 Export
               </button>
@@ -135,12 +165,12 @@ const CustomerTab = ({ orders, setOrders }) => {
             return (
               <div 
                 key={c.id} 
-                onClick={() => handleSelectOne(c.id)}
+                onClick={() => !isDeleting && handleSelectOne(c.id)}
                 className={`p-5 rounded-[30px] border transition-all duration-200 relative bg-white cursor-pointer select-none ${
                   isChecked 
                     ? 'border-[#2557e0] shadow-md shadow-blue-50 bg-blue-50/10' 
                     : 'border-slate-100 shadow-sm hover:border-slate-200'
-                }`}
+                } ${isDeleting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <div className="flex justify-between items-start mb-3">
                   <span className="text-[10px] bg-slate-100 text-slate-500 px-2.5 py-1 rounded-md font-black">
@@ -150,6 +180,7 @@ const CustomerTab = ({ orders, setOrders }) => {
                   <input 
                     type="checkbox" 
                     checked={isChecked}
+                    disabled={isDeleting}
                     onChange={(e) => {
                       e.stopPropagation();
                       handleSelectOne(c.id);

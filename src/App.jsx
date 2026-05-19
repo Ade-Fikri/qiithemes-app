@@ -1,4 +1,4 @@
-//app.jsx
+//app.jsx route
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import UserApp from "./pages/UserApp";
